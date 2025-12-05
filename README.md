@@ -50,6 +50,20 @@
 
 > **Not:** ADB ve diğer paketler otomatik olarak kurulur! Manuel kurulum gerekmez.
 
+## 🚀 Hızlı Başlangıç
+
+### ⚡ Tek Tıkla Çalıştırma
+
+Windows kullanıcıları için hazır başlatıcı dosyalar:
+
+| Dosya | Açıklama |
+|-------|----------|
+| `BASLAT.bat` | Konsol versiyonu (çift tıkla) |
+| `BASLAT_GUI.bat` | Grafik arayüz (çift tıkla) |
+| `BASLAT.vbs` | Gizli konsol penceresi |
+
+**Kullanım:** İstediğiniz dosyaya çift tıklayın! 🎉
+
 ## 🚀 Kurulum
 
 ### Otomatik Kurulum (Önerilen)
@@ -96,8 +110,18 @@ cd gigaveri
 
 ### 3. Uygulamayı Çalıştırın
 
+**🎯 Tek Tıkla Başlatma (Önerilen):**
+
+Windows'ta `BASLAT.bat` dosyasına çift tıklayın veya `BASLAT_GUI.bat` ile grafik arayüzü kullanın.
+
+**Alternatif Yöntemler:**
+
 ```bash
+# Konsol versiyonu
 python main.py
+
+# GUI başlatıcı
+python baslat_gui.py
 ```
 
 ### 4. İlk Çalıştırma

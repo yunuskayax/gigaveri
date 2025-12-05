@@ -23,6 +23,12 @@ wheels/
 .installed.cfg
 *.egg
 
+# Başlatıcı dosyaları (git'e dahil edilmeli)
+# BASLAT.bat
+# BASLAT_GUI.bat
+# BASLAT.vbs
+# BASLAT.ps1
+
 # ADB ve Platform Tools
 platform-tools/
 platform-tools.zip

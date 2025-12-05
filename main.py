@@ -96,9 +96,44 @@ def main():
     
     selected_device = None
     
+    # Otomatik cihaz kontrolü ve bağlantı
+    print("\n[OTOMATIK] Cihaz kontrolü yapılıyor...")
+    devices = adb.get_devices()
+    
+    if devices:
+        # Sadece 'device' durumundaki cihazları filtrele (unauthorized değil)
+        available_devices = [d for d in devices if d['status'] == 'device']
+        
+        if available_devices:
+            # İlk uygun cihazı otomatik seç
+            selected_device = available_devices[0]['serial']
+            print(f"[OK] Cihaz otomatik olarak bağlandı: {selected_device}")
+            
+            # Cihaz bilgilerini göster
+            device_info = adb.get_device_info(selected_device)
+            if device_info:
+                model = device_info.get('ro.product.model', 'Bilinmiyor')
+                brand = device_info.get('ro.product.brand', 'Bilinmiyor')
+                android_version = device_info.get('ro.build.version.release', 'Bilinmiyor')
+                print(f"[BILGI] Model: {brand} {model}")
+                print(f"[BILGI] Android: {android_version}")
+            
+            print("[OK] Hazır! Menüden işlem seçebilirsiniz.\n")
+        else:
+            print("[UYARI] Cihaz bulundu ancak yetkilendirilmemiş!")
+            print("[BILGI] Telefonunuzda 'USB hata ayıklamaya izin ver' bildirimini onaylayın.")
+            print("[BILGI] Menüden '1' seçerek tekrar deneyebilirsiniz.\n")
+    else:
+        print("[UYARI] Hiçbir cihaz bulunamadı!")
+        print("[BILGI] Lütfen:")
+        print("   1. Telefonunuzu USB ile bağlayın")
+        print("   2. USB hata ayıklama modunun açık olduğundan emin olun")
+        print("   3. Telefonda 'USB hata ayıklamaya izin ver' bildirimini onaylayın")
+        print("[BILGI] Menüden '1' seçerek cihazları tekrar kontrol edebilirsiniz.\n")
+    
     while True:
         print_menu()
-        choice = input("Seçiminiz (1-9): ").strip()
+        choice = input("Seçiminiz (1-11): ").strip()
         
         if choice == "1":
             print("\nBağlı cihazlar kontrol ediliyor...")
@@ -106,15 +141,47 @@ def main():
             
             if not devices:
                 print("[HATA] Hiçbir cihaz bulunamadı!")
-                print("Lütfen telefonunuzun USB hata ayıklama modunun açık olduğundan emin olun.")
+                print("[BILGI] Lütfen telefonunuzun USB hata ayıklama modunun açık olduğundan emin olun.")
+                selected_device = None
             else:
                 print(f"\n[OK] {len(devices)} cihaz bulundu:\n")
                 for i, device in enumerate(devices, 1):
-                    print(f"{i}. Seri: {device['serial']}")
+                    status_icon = "✓" if device['status'] == 'device' else "⚠"
+                    print(f"{i}. {status_icon} Seri: {device['serial']}")
                     print(f"   Durum: {device['status']}")
                     if device['details']:
                         print(f"   Detay: {device['details']}")
                     print()
+                
+                # Sadece 'device' durumundaki cihazları filtrele
+                available_devices = [d for d in devices if d['status'] == 'device']
+                
+                if not available_devices:
+                    print("[UYARI] Hiçbir cihaz yetkilendirilmemiş!")
+                    print("[BILGI] Telefonunuzda 'USB hata ayıklamaya izin ver' bildirimini onaylayın.")
+                    selected_device = None
+                elif len(available_devices) == 1:
+                    selected_device = available_devices[0]['serial']
+                    print(f"[OK] Cihaz otomatik seçildi: {selected_device}")
+                elif len(available_devices) > 1:
+                    try:
+                        device_choice = input(
+                            f"Cihaz seçin (1-{len(available_devices)}, Enter=ilk cihaz): "
+                        ).strip()
+                        if device_choice:
+                            idx = int(device_choice) - 1
+                            if 0 <= idx < len(available_devices):
+                                selected_device = available_devices[idx]['serial']
+                                print(f"[OK] Seçilen cihaz: {selected_device}")
+                            else:
+                                print("[HATA] Geçersiz seçim!")
+                                selected_device = None
+                        else:
+                            selected_device = available_devices[0]['serial']
+                            print(f"[OK] İlk cihaz seçildi: {selected_device}")
+                    except ValueError:
+                        print("[HATA] Geçersiz giriş!")
+                        selected_device = None
                 
                 # İlk cihazı varsayılan olarak seç
                 if len(devices) == 1:
@@ -141,6 +208,7 @@ def main():
         elif choice == "2":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             print(f"\nCihaz bilgileri alınıyor ({selected_device})...")
@@ -164,6 +232,7 @@ def main():
         elif choice == "3":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             print(f"\nYüklü uygulamalar alınıyor ({selected_device})...")
@@ -189,6 +258,7 @@ def main():
         elif choice == "4":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             package_name = input("Uygulama paket adını girin: ").strip()
@@ -217,6 +287,7 @@ def main():
         elif choice == "5":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             remote_path = input("Telefondaki dosya/dizin yolu: ").strip()
@@ -247,6 +318,7 @@ def main():
         elif choice == "6":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             remote_path = input(
@@ -269,6 +341,7 @@ def main():
         elif choice == "7":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             lines = input("Alınacak satır sayısı (Enter=1000): ").strip()
@@ -292,6 +365,7 @@ def main():
         elif choice == "8":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             command = input("Shell komutu: ").strip()
@@ -312,6 +386,7 @@ def main():
         elif choice == "9":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             print("\n=== ADB Yedekleme Oluşturma ===")
@@ -409,6 +484,7 @@ def main():
         elif choice == "10":
             if not selected_device:
                 print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
                 continue
             
             print("\n=== ADB Yedekleme Geri Yükleme ===")
