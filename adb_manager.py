@@ -559,4 +559,238 @@ class ADBManager:
                 "message": f"Geri yükleme hatası: {str(e)}",
                 "stderr": str(e)
             }
+    
+    def find_whatsapp_paths(self, device_serial: Optional[str] = None) -> Dict:
+        """
+        WhatsApp klasörlerini ve dosyalarını bulur
+        
+        Args:
+            device_serial: Cihaz seri numarası
+        
+        Returns:
+            WhatsApp yolları ve dosyaları
+        """
+        paths = {
+            "databases_sdcard": None,
+            "media": None,
+            "backups": None,
+            "databases_app": "/data/data/com.whatsapp/databases",
+            "found_files": []
+        }
+        
+        # Olası WhatsApp konumları (Android versiyonlarına göre)
+        possible_locations = [
+            "/sdcard/WhatsApp",
+            "/storage/emulated/0/WhatsApp",
+            "/sdcard/Android/media/com.whatsapp/WhatsApp",
+            "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp"
+        ]
+        
+        whatsapp_base = None
+        for location in possible_locations:
+            result = self.execute_shell_command(f"test -d {location} && echo 'exists'", device_serial)
+            if result["success"] and "exists" in result["stdout"]:
+                whatsapp_base = location
+                break
+        
+        if whatsapp_base:
+            # Klasik konumlar
+            paths["databases_sdcard"] = f"{whatsapp_base}/Databases"
+            paths["media"] = f"{whatsapp_base}/Media"
+            paths["backups"] = f"{whatsapp_base}/Backups"
+            
+            # Klasörleri kontrol et ve dosyaları listele
+            for key in ["databases_sdcard", "media", "backups"]:
+                if paths[key]:
+                    result = self.execute_shell_command(f"test -d {paths[key]} && echo 'exists'", device_serial)
+                    if result["success"] and "exists" in result["stdout"]:
+                        files_result = self.execute_shell_command(f"ls {paths[key]}", device_serial)
+                        if files_result["success"]:
+                            paths["found_files"].extend([f"{paths[key]}/{f}" for f in files_result["stdout"].strip().split("\n") if f.strip()])
+        
+        return paths
+    
+    def backup_whatsapp_databases(self, output_dir: str,
+                                  device_serial: Optional[str] = None) -> Dict:
+        """
+        WhatsApp veritabanı dosyalarını yedekler
+        
+        Args:
+            output_dir: Yedek dosyalarının kaydedileceği klasör
+            device_serial: Cihaz seri numarası
+        
+        Returns:
+            İşlem sonucu ve indirilen dosyalar
+        """
+        whatsapp_dir = os.path.join(output_dir, "whatsapp_backup")
+        os.makedirs(whatsapp_dir, exist_ok=True)
+        
+        databases_dir = os.path.join(whatsapp_dir, "databases")
+        os.makedirs(databases_dir, exist_ok=True)
+        
+        downloaded_files = []
+        errors = []
+        
+        # WhatsApp klasörlerini bul
+        whatsapp_paths = self.find_whatsapp_paths(device_serial)
+        
+        # SDCard'taki otomatik yedekleri çek
+        sdcard_db_path = whatsapp_paths.get("databases_sdcard") or "/sdcard/WhatsApp/Databases"
+        result = self.execute_shell_command(f"ls {sdcard_db_path} 2>/dev/null", device_serial)
+        
+        if result["success"] and result["stdout"].strip():
+            files = [f.strip() for f in result["stdout"].strip().split("\n") if f.strip()]
+            for file in files:
+                if file.endswith(('.db', '.db.crypt12', '.db.crypt14', '.db.crypt15')):
+                    remote_path = f"{sdcard_db_path}/{file}"
+                    local_path = os.path.join(databases_dir, file)
+                    
+                    pull_result = self.pull_file(remote_path, local_path, device_serial)
+                    if pull_result["success"]:
+                        downloaded_files.append(local_path)
+                    else:
+                        errors.append(f"{file}: {pull_result.get('stderr', 'Bilinmeyen hata')}")
+        
+        # /data/data/com.whatsapp/databases/ klasöründen çekmeyi dene (root gerektirir)
+        app_db_path = "/data/data/com.whatsapp/databases"
+        result = self.execute_shell_command(f"su -c 'ls {app_db_path}' 2>/dev/null", device_serial)
+        
+        if result["success"] and result["stdout"].strip():
+            files = [f.strip() for f in result["stdout"].strip().split("\n") if f.strip()]
+            for file in files:
+                if file.endswith('.db') and file not in [os.path.basename(f) for f in downloaded_files]:
+                    remote_path = f"{app_db_path}/{file}"
+                    local_path = os.path.join(databases_dir, f"root_{file}")
+                    
+                    # Root ile çek
+                    pull_result = self.execute_shell_command(
+                        f"su -c 'cat {remote_path}' > /sdcard/temp_{file}",
+                        device_serial
+                    )
+                    
+                    if pull_result["success"]:
+                        temp_pull = self.pull_file(f"/sdcard/temp_{file}", local_path, device_serial)
+                        if temp_pull["success"]:
+                            downloaded_files.append(local_path)
+                            # Geçici dosyayı sil
+                            self.execute_shell_command(f"rm /sdcard/temp_{file}", device_serial)
+        
+        return {
+            "success": len(downloaded_files) > 0,
+            "downloaded_files": downloaded_files,
+            "errors": errors,
+            "output_dir": databases_dir
+        }
+    
+    def backup_whatsapp_media(self, output_dir: str,
+                              include_images: bool = True,
+                              include_videos: bool = True,
+                              include_audio: bool = True,
+                              include_documents: bool = True,
+                              device_serial: Optional[str] = None) -> Dict:
+        """
+        WhatsApp medya dosyalarını yedekler
+        
+        Args:
+            output_dir: Yedek dosyalarının kaydedileceği klasör
+            include_images: Resimleri dahil et
+            include_videos: Videoları dahil et
+            include_audio: Ses dosyalarını dahil et
+            include_documents: Belgeleri dahil et
+            device_serial: Cihaz seri numarası
+        
+        Returns:
+            İşlem sonucu
+        """
+        whatsapp_dir = os.path.join(output_dir, "whatsapp_backup")
+        os.makedirs(whatsapp_dir, exist_ok=True)
+        
+        media_dir = os.path.join(whatsapp_dir, "media")
+        os.makedirs(media_dir, exist_ok=True)
+        
+        media_folders = []
+        if include_images:
+            media_folders.append(("WhatsApp Images", "Images"))
+        if include_videos:
+            media_folders.append(("WhatsApp Video", "Videos"))
+        if include_audio:
+            media_folders.append(("WhatsApp Audio", "Audio"))
+        if include_documents:
+            media_folders.append(("WhatsApp Documents", "Documents"))
+        
+        downloaded_count = 0
+        errors = []
+        
+        # WhatsApp medya klasörünü bul
+        whatsapp_paths = self.find_whatsapp_paths(device_serial)
+        media_base = whatsapp_paths.get("media") or "/sdcard/WhatsApp/Media"
+        
+        for remote_folder, local_folder in media_folders:
+            remote_path = f"{media_base}/{remote_folder}"
+            local_path = os.path.join(media_dir, local_folder)
+            
+            # Klasörün varlığını kontrol et
+            check_result = self.execute_shell_command(f"test -d {remote_path} && echo 'exists'", device_serial)
+            if check_result["success"] and "exists" in check_result["stdout"]:
+                pull_result = self.pull_directory(remote_path, local_path, device_serial)
+                if pull_result["success"]:
+                    # İndirilen dosya sayısını say
+                    if os.path.exists(local_path):
+                        file_count = sum([len(files) for _, _, files in os.walk(local_path)])
+                        downloaded_count += file_count
+                else:
+                    errors.append(f"{remote_folder}: {pull_result.get('stderr', 'Bilinmeyen hata')}")
+        
+        return {
+            "success": downloaded_count > 0,
+            "downloaded_count": downloaded_count,
+            "errors": errors,
+            "output_dir": media_dir
+        }
+    
+    def backup_whatsapp_complete(self, output_dir: str,
+                                include_databases: bool = True,
+                                include_media: bool = True,
+                                device_serial: Optional[str] = None) -> Dict:
+        """
+        WhatsApp'ın tam yedeğini alır (veritabanları + medya)
+        
+        Args:
+            output_dir: Yedek dosyalarının kaydedileceği klasör
+            include_databases: Veritabanlarını dahil et
+            include_media: Medya dosyalarını dahil et
+            device_serial: Cihaz seri numarası
+        
+        Returns:
+            İşlem sonucu
+        """
+        whatsapp_dir = os.path.join(output_dir, "whatsapp_backup")
+        os.makedirs(whatsapp_dir, exist_ok=True)
+        
+        results = {
+            "databases": None,
+            "media": None,
+            "success": False
+        }
+        
+        if include_databases:
+            print("\n[KURULUM] WhatsApp veritabanları yedekleniyor...")
+            results["databases"] = self.backup_whatsapp_databases(output_dir, device_serial)
+            if results["databases"]["success"]:
+                print(f"[OK] {len(results['databases']['downloaded_files'])} veritabanı dosyası indirildi")
+            else:
+                print("[UYARI] Veritabanı dosyaları bulunamadı veya erişilemedi")
+        
+        if include_media:
+            print("\n[KURULUM] WhatsApp medya dosyaları yedekleniyor...")
+            results["media"] = self.backup_whatsapp_media(output_dir, device_serial=device_serial)
+            if results["media"]["success"]:
+                print(f"[OK] {results['media']['downloaded_count']} medya dosyası indirildi")
+            else:
+                print("[UYARI] Medya dosyaları bulunamadı")
+        
+        results["success"] = (results["databases"] and results["databases"]["success"]) or \
+                            (results["media"] and results["media"]["success"])
+        
+        return results
 

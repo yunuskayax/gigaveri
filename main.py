@@ -37,7 +37,8 @@ def print_menu():
     print("8. Shell komutu çalıştır")
     print("9. Telefon yedeklemesi oluştur (ADB Backup)")
     print("10. Yedekleme geri yükle (ADB Restore)")
-    print("11. Çıkış")
+    print("11. WhatsApp yedeklemesi al")
+    print("12. Çıkış")
     print_separator()
 
 
@@ -133,7 +134,7 @@ def main():
     
     while True:
         print_menu()
-        choice = input("Seçiminiz (1-11): ").strip()
+        choice = input("Seçiminiz (1-12): ").strip()
         
         if choice == "1":
             print("\nBağlı cihazlar kontrol ediliyor...")
@@ -545,11 +546,124 @@ def main():
                     print(f"[HATA] Detay: {result['stderr']}")
         
         elif choice == "11":
+            if not selected_device:
+                print("[HATA] Önce bir cihaz seçin! (Seçenek 1)")
+                print("[BILGI] Menüden '1' seçerek cihazları kontrol edin.")
+                continue
+            
+            print("\n=== WhatsApp Yedekleme ===")
+            print("[BILGI] WhatsApp verilerinizi yedekleyin")
+            print("\nYedekleme seçenekleri:")
+            print("1. Tam yedekleme (Veritabanları + Medya)")
+            print("2. Sadece veritabanları (Sohbet kayıtları)")
+            print("3. Sadece medya dosyaları")
+            print("4. Özel yedekleme")
+            
+            whatsapp_choice = input("\nSeçiminiz (1-4): ").strip()
+            
+            include_databases = True
+            include_media = True
+            img_choice = 'e'
+            vid_choice = 'e'
+            aud_choice = 'e'
+            doc_choice = 'e'
+            
+            if whatsapp_choice == "1":
+                include_databases = True
+                include_media = True
+            elif whatsapp_choice == "2":
+                include_databases = True
+                include_media = False
+            elif whatsapp_choice == "3":
+                include_databases = False
+                include_media = True
+            elif whatsapp_choice == "4":
+                db_choice = input("Veritabanlarını dahil et? (E/h): ").strip().lower()
+                include_databases = db_choice in ['e', 'evet', 'y', 'yes', '']
+                
+                media_choice = input("Medya dosyalarını dahil et? (E/h): ").strip().lower()
+                include_media = media_choice in ['e', 'evet', 'y', 'yes', '']
+                
+                if include_media:
+                    print("\nMedya türleri:")
+                    img_choice = input("Resimler? (E/h): ").strip().lower()
+                    vid_choice = input("Videolar? (E/h): ").strip().lower()
+                    aud_choice = input("Ses dosyaları? (E/h): ").strip().lower()
+                    doc_choice = input("Belgeler? (E/h): ").strip().lower()
+            else:
+                print("[HATA] Geçersiz seçim!")
+                input("\nDevam etmek için Enter'a basın...")
+                continue
+            
+            print(f"\n[KURULUM] WhatsApp yedeklemesi başlatılıyor...")
+            print(f"[BILGI] Veritabanları: {'Evet' if include_databases else 'Hayır'}")
+            print(f"[BILGI] Medya dosyaları: {'Evet' if include_media else 'Hayır'}")
+            print("[BILGI] Bu işlem birkaç dakika sürebilir...\n")
+            
+            if whatsapp_choice == "4" and include_media:
+                # Özel medya seçenekleri
+                result = adb.backup_whatsapp_complete(
+                    output_dir,
+                    include_databases=include_databases,
+                    include_media=False,  # Önce veritabanları
+                    device_serial=selected_device
+                )
+                
+                if include_databases and result.get("databases"):
+                    print(f"\n[OK] Veritabanları yedeklendi: {result['databases']['output_dir']}")
+                
+                # Medya dosyalarını ayrı çek
+                if include_media:
+                    media_result = adb.backup_whatsapp_media(
+                        output_dir,
+                        include_images=img_choice in ['e', 'evet', 'y', 'yes', ''],
+                        include_videos=vid_choice in ['e', 'evet', 'y', 'yes', ''],
+                        include_audio=aud_choice in ['e', 'evet', 'y', 'yes', ''],
+                        include_documents=doc_choice in ['e', 'evet', 'y', 'yes', ''],
+                        device_serial=selected_device
+                    )
+                    result["media"] = media_result
+            else:
+                result = adb.backup_whatsapp_complete(
+                    output_dir,
+                    include_databases=include_databases,
+                    include_media=include_media,
+                    device_serial=selected_device
+                )
+            
+            if result["success"]:
+                print("\n" + "=" * 60)
+                print("[OK] WhatsApp yedeklemesi tamamlandı!")
+                print("=" * 60)
+                
+                if result.get("databases"):
+                    print(f"\n[OK] Veritabanları: {result['databases']['output_dir']}")
+                    print(f"[OK] İndirilen dosya sayısı: {len(result['databases']['downloaded_files'])}")
+                    if result['databases']['errors']:
+                        print(f"[UYARI] {len(result['databases']['errors'])} dosya indirilemedi")
+                
+                if result.get("media"):
+                    print(f"\n[OK] Medya dosyaları: {result['media']['output_dir']}")
+                    print(f"[OK] İndirilen dosya sayısı: {result['media']['downloaded_count']}")
+                    if result['media']['errors']:
+                        print(f"[UYARI] {len(result['media']['errors'])} klasör indirilemedi")
+                
+                backup_path = os.path.join(output_dir, "whatsapp_backup")
+                print(f"\n[OK] Tüm yedekler: {backup_path}")
+            else:
+                print("\n[HATA] WhatsApp yedeklemesi başarısız!")
+                print("[BILGI] WhatsApp'ın yüklü olduğundan ve /sdcard/WhatsApp klasörünün mevcut olduğundan emin olun.")
+                if result.get("databases") and result["databases"]["errors"]:
+                    print("\n[HATA] Veritabanı hataları:")
+                    for error in result["databases"]["errors"]:
+                        print(f"  - {error}")
+        
+        elif choice == "12":
             print("\nÇıkılıyor...")
             break
         
         else:
-            print("\n[HATA] Geçersiz seçim! Lütfen 1-11 arası bir sayı girin.")
+            print("\n[HATA] Geçersiz seçim! Lütfen 1-12 arası bir sayı girin.")
         
         input("\nDevam etmek için Enter'a basın...")
 
